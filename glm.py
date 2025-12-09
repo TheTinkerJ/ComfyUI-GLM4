@@ -533,6 +533,101 @@ class GLM_Vision_Simple:
             _log_error(error_message)
             return (error_message,)
 
+# --- GLM多图识图节点 ---
+
+class GLM_Vision_I2:
+    """
+    一个支持多图片输入的GLM识图节点，可以同时处理多张图片。
+    """
+    CATEGORY = "GLM"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("description",)
+    FUNCTION = "multi_image_describe"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "prompt": ("STRING", {
+                    "default": "请详细描述这两张图片的内容，包括它们之间的关系和异同点。",
+                    "multiline": True,
+                    "placeholder": "请输入对图片的提示词或问题"
+                }),
+                "model_name": ("STRING", {
+                    "default": "glm-4v-flash",
+                    "placeholder": "请输入模型名称，如 glm-4v-flash, GLM-4.6V"
+                }),
+                "api_key": ("STRING", {
+                    "default": "",
+                    "placeholder": "可选：智谱AI API Key (留空则尝试从环境变量或config.json读取)"
+                }),
+            },
+            "optional": {
+                "image_input_1": ("IMAGE", {"tooltip": "输入第一张图片"}),
+                "image_input_2": ("IMAGE", {"tooltip": "输入第二张图片"}),
+            }
+        }
+
+    def multi_image_describe(self, prompt, model_name, api_key, image_input_1=None, image_input_2=None):
+        """
+        执行多图片描述功能。
+        """
+        final_api_key = api_key.strip() or get_zhipuai_api_key()
+        if not final_api_key:
+            _log_error("API Key 未提供。")
+            return ("API Key 未提供。",)
+
+        _log_info("初始化智谱AI客户端。")
+        try:
+            client = ZhipuAI(api_key=final_api_key)
+        except Exception as e:
+            _log_error(f"客户端初始化失败: {e}")
+            return (f"客户端初始化失败: {e}",)
+
+        # 收集输入的图片
+        image_inputs = [image_input_1, image_input_2]
+        valid_images = [img for img in image_inputs if img is not None]
+
+        if not valid_images:
+            _log_error("至少需要提供一张图片。")
+            return ("至少需要提供一张图片。",)
+
+        # 处理输入图片
+        content_parts = [{"type": "text", "text": prompt.strip() or "请描述这些图片。"}]
+
+        try:
+            for image_input in valid_images:
+                # ComfyUI的IMAGE是PyTorch张量，范围[0,1]，形状[B, H, W, C]
+                i_tensor = 255. * image_input.cpu().numpy()
+                img = Image.fromarray(np.clip(i_tensor, 0, 255).astype(np.uint8)[0]) # 取第一个batch的图片
+
+                buffered = io.BytesIO()
+                img.save(buffered, format="PNG")
+                image_data = "data:image/png;base64," + base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+                content_parts.append({"type": "image_url", "image_url": {"url": image_data}})
+
+            _log_info(f"成功处理 {len(valid_images)} 张图片。")
+
+        except Exception as e:
+            _log_error(f"图片处理失败: {e}")
+            return (f"图片处理失败: {e}",)
+
+        _log_info(f"调用 GLM 视觉模型 ({model_name})...")
+
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": content_parts}]
+            )
+            description = response.choices[0].message.content
+            _log_info("GLM 视觉模型响应成功。")
+            return (description,)
+        except Exception as e:
+            error_message = f"GLM 视觉模型 API 调用失败: {e}"
+            _log_error(error_message)
+            return (error_message,)
+
 # --- GLM文本翻译节点 ---
 
 class GLM_Translation_Text:
@@ -638,6 +733,7 @@ NODE_CLASS_MAPPINGS = {
     "GLM_Text_Chat": GLM_Text_Chat,
     "GLM_Vision_ImageToPrompt": GLM_Vision_ImageToPrompt,
     "GLM_Vision_Simple": GLM_Vision_Simple,  # 新增简洁识图节点
+    "GLM_Vision_I2": GLM_Vision_I2,  # 新增多图识图节点
     "GLM_Translation_Text": GLM_Translation_Text, # 新增翻译节点
 }
 
@@ -646,5 +742,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "GLM_Text_Chat": "GLM文本对话",
     "GLM_Vision_ImageToPrompt": "GLM识图生成提示词",
     "GLM_Vision_Simple": "GLM简洁识图",  # 新增简洁识图节点显示名称
+    "GLM_Vision_I2": "GLM多图识图",  # 新增多图识图节点显示名称
     "GLM_Translation_Text": "GLM文本翻译", # 新增翻译节点显示名称
 }
