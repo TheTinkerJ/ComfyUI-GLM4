@@ -460,6 +460,11 @@ class GLM_Vision_Simple:
         return {
             "required": {
                 "image_input": ("IMAGE", {"tooltip": "输入需要描述的图片"}),
+                "prompt": ("STRING", {
+                    "default": "请详细描述这张图片的内容，包括主体、场景、色彩、构图和风格。",
+                    "multiline": True,
+                    "placeholder": "请输入对图片的提示词或问题"
+                }),
                 "model_name": ("STRING", {
                     "default": "glm-4v-flash",
                     "placeholder": "请输入模型名称，如 glm-4v-flash, GLM-4.6V"
@@ -471,7 +476,7 @@ class GLM_Vision_Simple:
             }
         }
 
-    def simple_describe(self, image_input, model_name, api_key):
+    def simple_describe(self, image_input, prompt, model_name, api_key):
         """
         执行简洁的图片描述功能。
         """
@@ -501,8 +506,11 @@ class GLM_Vision_Simple:
             _log_error(f"图片处理失败: {e}")
             return (f"图片处理失败: {e}",)
 
-        # 固定的简洁提示词
-        prompt_text = "请详细描述这张图片的内容，包括主体、场景、色彩、构图和风格。"
+        # 使用用户输入的提示词
+        if not prompt.strip():
+            prompt_text = "请详细描述这张图片的内容，包括主体、场景、色彩、构图和风格。"
+        else:
+            prompt_text = prompt.strip()
 
         # 构建消息内容
         content_parts = [
