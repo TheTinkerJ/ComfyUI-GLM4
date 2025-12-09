@@ -443,6 +443,88 @@ class GLM_Vision_ImageToPrompt:
             _log_error(error_message)
             return (error_message,)
 
+# --- GLM简洁识图节点 ---
+
+class GLM_Vision_Simple:
+    """
+    一个简洁的GLM识图节点，只需要输入图片即可生成描述。
+    去掉了复杂的模板系统，使用固定的提示词。
+    """
+    CATEGORY = "GLM"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("description",)
+    FUNCTION = "simple_describe"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image_input": ("IMAGE", {"tooltip": "输入需要描述的图片"}),
+                "model_name": ("STRING", {
+                    "default": "glm-4v-flash",
+                    "placeholder": "请输入模型名称，如 glm-4v-flash, GLM-4.6V"
+                }),
+                "api_key": ("STRING", {
+                    "default": "",
+                    "placeholder": "可选：智谱AI API Key (留空则尝试从环境变量或config.json读取)"
+                }),
+            }
+        }
+
+    def simple_describe(self, image_input, model_name, api_key):
+        """
+        执行简洁的图片描述功能。
+        """
+        final_api_key = api_key.strip() or get_zhipuai_api_key()
+        if not final_api_key:
+            _log_error("API Key 未提供。")
+            return ("API Key 未提供。",)
+
+        _log_info("初始化智谱AI客户端。")
+        try:
+            client = ZhipuAI(api_key=final_api_key)
+        except Exception as e:
+            _log_error(f"客户端初始化失败: {e}")
+            return (f"客户端初始化失败: {e}",)
+
+        # 处理图片输入
+        try:
+            # ComfyUI的IMAGE是PyTorch张量，范围[0,1]，形状[B, H, W, C]
+            i = 255. * image_input.cpu().numpy()
+            img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8)[0]) # 取第一个batch的图片
+
+            buffered = io.BytesIO()
+            img.save(buffered, format="PNG")
+            image_data = "data:image/png;base64," + base64.b64encode(buffered.getvalue()).decode('utf-8')
+            _log_info("图片转换为 Base64 成功。")
+        except Exception as e:
+            _log_error(f"图片处理失败: {e}")
+            return (f"图片处理失败: {e}",)
+
+        # 固定的简洁提示词
+        prompt_text = "请详细描述这张图片的内容，包括主体、场景、色彩、构图和风格。"
+
+        # 构建消息内容
+        content_parts = [
+            {"type": "text", "text": prompt_text},
+            {"type": "image_url", "image_url": {"url": image_data}}
+        ]
+
+        _log_info(f"调用 GLM 视觉模型 ({model_name})...")
+
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": content_parts}]
+            )
+            description = response.choices[0].message.content
+            _log_info("GLM 视觉模型响应成功。")
+            return (description,)
+        except Exception as e:
+            error_message = f"GLM 视觉模型 API 调用失败: {e}"
+            _log_error(error_message)
+            return (error_message,)
+
 # --- GLM文本翻译节点 ---
 
 class GLM_Translation_Text:
@@ -547,6 +629,7 @@ class GLM_Translation_Text:
 NODE_CLASS_MAPPINGS = {
     "GLM_Text_Chat": GLM_Text_Chat,
     "GLM_Vision_ImageToPrompt": GLM_Vision_ImageToPrompt,
+    "GLM_Vision_Simple": GLM_Vision_Simple,  # 新增简洁识图节点
     "GLM_Translation_Text": GLM_Translation_Text, # 新增翻译节点
 }
 
@@ -554,5 +637,6 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "GLM_Text_Chat": "GLM文本对话",
     "GLM_Vision_ImageToPrompt": "GLM识图生成提示词",
+    "GLM_Vision_Simple": "GLM简洁识图",  # 新增简洁识图节点显示名称
     "GLM_Translation_Text": "GLM文本翻译", # 新增翻译节点显示名称
 }
